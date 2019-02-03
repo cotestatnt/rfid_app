@@ -40,7 +40,7 @@ static int timeout=1000; /* timeout in ms */
 static uint8_t answer[48] = {0};
 
 
-int prepare_message(uint8_t *out_buf, int endpoint, int command, uint8_t *pl_buf, int pl_buf_size) {
+void prepare_message(uint8_t *out_buf, int endpoint, int command, uint8_t *pl_buf, int pl_buf_size) {
 
 	int i,j;
 	int x = 0;
@@ -69,9 +69,9 @@ int prepare_message(uint8_t *out_buf, int endpoint, int command, uint8_t *pl_buf
     }
     if (verbose) fprintf(stdout, "\n");
 
-};
+}
 
-int send_message(struct libusb_device_handle * devh, uint8_t *message, uint8_t *answer) {
+void send_message(struct libusb_device_handle * devh, uint8_t *message, uint8_t *answer) {
 	int r,i;
 	int bt = 0;
 //usleep(20000);
@@ -87,12 +87,11 @@ int send_message(struct libusb_device_handle * devh, uint8_t *message, uint8_t *
     }
     if (verbose) fprintf(stdout, "\n");
 
-};
+}
 
-int handle_interrupt_answer(uint8_t *int_buf, int int_buf_size) {
-	int i, x = 0;
+int handle_interrupt_answer(uint8_t *int_buf, int int_buf_size) {	
 	int msg_size = 0;
-	uint8_t cmd = 0, checksum;
+	uint8_t cmd = 0;
 
 	if (int_buf_size == 48) {
 		if (verbose) fprintf(stdout,"valid interrupt buffer size found (48)\n");
@@ -156,7 +155,7 @@ void interrupt_cb(struct libusb_transfer *xfr)
 
 //				fprintf(stdout, "%02x%02x%02x%02x%02x\n",answer[5],answer[6],answer[7],answer[8],answer[9]);
 //			handle_interrupt_answer(xfr->buffer, xfr->actual_length);
-			if (verbose) fprintf(stdout, "|%x| \n", (unsigned long)xfr->user_data);
+			if (verbose) fprintf(stdout, "|%x| \n", (unsigned int)xfr->user_data);
 			if (xfr->user_data)
 				memcpy(xfr->user_data, l_answer, 48);	//only handle 48 byte answers
 			} else {
@@ -174,7 +173,7 @@ if (verbose) fprintf(stdout, "transfer error\n");
     }
 };
 
-int init_protocol(struct libusb_device_handle * devh) {
+void init_protocol(struct libusb_device_handle * devh) {
 
 	// the protocol needs a previous sent interrupt in request
 	// and it should not be handled
@@ -194,21 +193,15 @@ int init_protocol(struct libusb_device_handle * devh) {
 	usleep(500 *1000);
 }
 
-int uninit_protocol(struct libusb_device_handle * devh) {
-
-if (verbose) fprintf(stdout, "uninit_protocol\n");
-
-	while(handle_events) {
-		if(libusb_handle_events(NULL) != LIBUSB_SUCCESS) break;
-		if (verbose) fprintf(stdout, "loop uninit\n");
-	}
-
-
+void uninit_protocol(struct libusb_device_handle * devh) {
+    if (verbose) fprintf(stdout, "uninit_protocol\n");
+    while(handle_events) {
+        if(libusb_handle_events(NULL) != LIBUSB_SUCCESS) break;
+        if (verbose) fprintf(stdout, "loop uninit\n");
+    }
 }
 
-int send_message_async(struct libusb_device_handle * devh, uint8_t *message, uint8_t *answer) {
-	int r,i;
-	int bt = 0;
+int send_message_async(struct libusb_device_handle * devh, uint8_t *message, uint8_t *answer) {		
 	struct libusb_transfer *xfr_out, *xfr_in;
 	uint8_t* usb_msg_out = malloc(24);
 	uint8_t* usb_msg_in = calloc(1, 48);
@@ -269,130 +262,52 @@ int send_read_em4100id(struct libusb_device_handle * devh) {
 	return 0;
 };
 
-int t55xx_reset(struct libusb_device_handle * devh) {
-	uint8_t cmd[24] = {0};
-	uint8_t answer[48] = {0};
-	uint8_t reset[5] = {0x0, 0x0, 0x0, 0x0, 0x0};
 
-	prepare_message(cmd, ENDPOINT_OUT, CMD_T5557_BLOCK_WRITE, reset, 5);
-	send_message_async(devh, cmd, answer);
-
-};
-
-
-int em4100_column_parity(uint8_t* hex_buf, int shift) {
-	int i, p=0;
-
-	for (i=0 ; i<5 ; i++) {
-		p += (hex_buf[i] >> shift+4) &1;
-		p += (hex_buf[i] >> shift) &1;
-	}
-	return p&1;
+void send_buzzer(struct libusb_device_handle * devh, uint8_t duration) {
+    uint8_t cmd[48] = {0};
+    uint8_t answer[48] = {0};
+    uint8_t buzz[1] = {9};
+    buzz[1] = duration;
+    prepare_message(cmd, ENDPOINT_OUT, CMD_BUZZER, &buzz[0], 1);
+    send_message_async(devh, cmd, answer);
 }
 
-int hex_to_em4100_layout(uint8_t* hex_buf, uint8_t* out_buf) {
-	int p0,p1,p2,p3,p4,p5,p6,p7,p8,p9;
-	int pc0,pc1,pc2,pc3;
-	uint8_t ep[16] = {0,1,1,0, 1,0,0,1, 1,0,0,1, 0,1,1,0};
-
-	p0 = ep[hex_buf[0]  >> 4];
-	p1 = ep[hex_buf[0] & 0xf];
-	p2 = ep[hex_buf[1]  >> 4];
-	p3 = ep[hex_buf[1] & 0xf];
-	p4 = ep[hex_buf[2]  >> 4];
-	p5 = ep[hex_buf[2] & 0xf];
-	p6 = ep[hex_buf[3]  >> 4];
-	p7 = ep[hex_buf[3] & 0xf];
-	p8 = ep[hex_buf[4]  >> 4];
-	p9 = ep[hex_buf[4] & 0xf];
-
-	pc0 = em4100_column_parity(hex_buf, 3);
-	pc1 = em4100_column_parity(hex_buf, 2);
-	pc2 = em4100_column_parity(hex_buf, 1);
-	pc3 = em4100_column_parity(hex_buf, 0);
-
-	out_buf[0] = 0xff;
-	out_buf[1] = 0x80 | ((hex_buf[0]>>1)&0x78) | (p0<<2) | ((hex_buf[0]>>2)&0x03);
-	out_buf[2] = (hex_buf[0]<<6) | (p1<<5) | ((hex_buf[1]>>3)&30) | p2;
-	out_buf[3] = (hex_buf[1]<<4) | (p3<<3) | (hex_buf[2]>>5);
-	out_buf[4] = ((hex_buf[2]<<3)&0x80) | (p4<<6) | ((hex_buf[2]<<2)&0x3c) | (p5<<1) | (hex_buf[3]>>7);
-	out_buf[5] = ((hex_buf[3]<<1)&0xe0) | (p6<<4) | (hex_buf[3]&0xf);
-	out_buf[6] = (p7<<7) | ((hex_buf[4]>>1)&0x78) | (p8<<2) | ((hex_buf[4]>>2)&0x03);
-	out_buf[7] = (hex_buf[4]<<6) | (p9<<5) | (pc0<<4) | (pc1<<3) | (pc2<<2) | (pc3<<1);
-};
-
-
-
-
-int em4305_login(struct libusb_device_handle * devh) {
-	uint8_t cmd[24] = {0};
-	uint8_t answer[48] = {0};
-	uint8_t login[7] = {0x3, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
-
-	prepare_message(cmd, ENDPOINT_OUT, CMD_EM4305_CMD, login, 7);
-	send_message_async(devh, cmd, answer);
+void hex_string_to_bytes(uint8_t *hex_string, uint8_t *byte_array) {
+    uint8_t* c1;
+    int i,idx=0;
+    unsigned int bytes[2];
+    for(i=0 ; i<10 ; i+=2) {
+        c1 = &hex_string[i];
+        sscanf(c1, "%02x", &bytes[0]);
+        byte_array[idx] = bytes[0];
+        idx++;
+    }
 }
 
-
-int send_buzzer(struct libusb_device_handle * devh, uint8_t duration) {
-	uint8_t cmd[48] = {0};
-	uint8_t answer[48] = {0};
-	uint8_t buzz[1] = {9};
-	buzz[1] = duration;
-	prepare_message(cmd, ENDPOINT_OUT, CMD_BUZZER, &buzz[0], 1);
-	send_message_async(devh, cmd, answer);
-};
-
-int hex_string_to_bytes(uint8_t *hex_string, uint8_t *byte_array) {
-	uint8_t* c1;
-	int i,idx=0;
-	unsigned int bytes[2];
-	for(i=0 ; i<10 ; i+=2) {
-	    c1 = &hex_string[i];
-	    sscanf(c1, "%02x", &bytes[0]);
-	    byte_array[idx] = bytes[0];
-	    idx++;
-	}
-}
-
-int main(int argc,char** argv)
-{
+int main(int argc,char** argv) {
     int r = 1, i;
-    struct libusb_device_handle *devh = NULL;
-
     int option = 0;
     int read_device = 0;
 	int format = AUTO_FORMAT;
-	int buzzer = 0;
-    int semicolon=0, questionmark=0, split=0, enter=0;
+	int buzzer = 0;    
 
     while ((option = getopt(argc, argv,"w:vrb:sqlef:")) != -1) {
         switch (option) {
-            case 'v' : verbose = 1;
+            case 'v' : 
+                verbose = 1;
                 break;
-            case 'r' : read_device = 1;
+            case 'r' : 
+                read_device = 1;
                 break;
-            case 'b' : buzzer = optarg[0]+'0';
+            case 'b' : 
+                buzzer = optarg[0]+'0';
+                break;            
+            default: read_device = 1;
                 break;
-            case 's' : semicolon = 1;
-                break;
-            case 'q' : questionmark = 1;
-                break;
-            case 'l' : split = 1;
-                break;
-            case 'e' : enter = 1;
-                break;
-			case 'f' : format = atoi(optarg);
-				break;
-            default: ;/*print_usage()*/;
-                 exit(EXIT_FAILURE);
         }
     }
 
-    if (argc < 2) {
-        //print_usage();
-        goto exit;
-    }
+    
 
     if (verbose) fprintf(stdout, "Init usb\n");
 
@@ -405,6 +320,9 @@ int main(int argc,char** argv)
 
     libusb_device **devs;
     ssize_t n = libusb_get_device_list(NULL, &devs);
+    
+    struct libusb_device_handle *reader1 = NULL;
+    struct libusb_device_handle *reader2 = NULL;
 
     int num_dev = 0;
     for(int i=0; i<n; i++){
@@ -415,7 +333,7 @@ int main(int argc,char** argv)
         }
         if(desc.idVendor == 0x6688){
             num_dev++;
-            libusb_open(devs[i], &devh);
+            libusb_open(devs[i], &reader1);
         }
     }
 
@@ -424,34 +342,34 @@ int main(int argc,char** argv)
 
     //devh = libusb_open_device_with_vid_pid(NULL, VENDOR_ID, PRODUCT_ID);
 
-    if (!devh) {
+    if (!reader1) {
         if (verbose) fprintf(stdout, "USB device open failed\n");
         goto out;
     }
     if (verbose) fprintf(stdout, "Successfully found the RFID R/W device\n");
 
-    r = libusb_detach_kernel_driver(devh, 0);
+    r = libusb_detach_kernel_driver(reader1, 0);
     if (r < 0 && r != LIBUSB_ERROR_NOT_FOUND && r != LIBUSB_ERROR_NOT_SUPPORTED) {
         fprintf(stderr, "libusb_detach_kernel_driver error %d\n", r);
         goto out;
     }
 
 
-    r = libusb_claim_interface(devh, 0);
+    r = libusb_claim_interface(reader1, 0);
     if (r < 0) {
         fprintf(stderr, "libusb_claim_interface error %d\n", r);
         goto out;
     }
 
-	init_protocol(devh);
+	init_protocol(reader1);
 
     if (buzzer) {
-		send_buzzer(devh, 9);
+		send_buzzer(reader1, 9);
     }
 
 
     if (read_device) {
-        send_read_em4100id(devh);
+        send_read_em4100id(reader1);
     }
 
 
@@ -459,11 +377,11 @@ if (verbose) fprintf(stdout, "uninit\n");
 
 //	uninit_protocol(devh);
 //	send_buzzer(devh);
-    libusb_release_interface(devh, 0);
+    libusb_release_interface(reader1, 0);
 out:
     libusb_free_device_list(devs, 1);
     //	libusb_reset_device(devh);
-    libusb_close(devh);
+    libusb_close(reader1);
     libusb_exit(NULL);
 exit:
     return r >= 0 ? r : -r;
